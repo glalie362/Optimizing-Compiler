@@ -41,6 +41,7 @@
     <None Include=".gitignore" />
     <None Include="prog.in" />
     <None Include="prog.S" />
+    <None Include="prog.Stesting" />
     <None Include="prog.Sold" />
     <None Include="README.md" />
   </ItemGroup>

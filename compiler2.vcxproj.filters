@@ -63,9 +63,10 @@
   <ItemGroup>
     <None Include="prog.in" />
     <None Include="prog.Sold" />
-    <None Include="prog.S" />
+    <None Include="prog.Stesting" />
     <None Include=".gitattributes" />
     <None Include=".gitignore" />
     <None Include="README.md" />
+    <None Include="prog.S" />
   </ItemGroup>
 </Project>

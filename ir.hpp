@@ -77,7 +77,6 @@ struct Function {
 	std::unordered_map<std::string, ValueId> locals;
 };
 
-
 struct Module {
 	std::unordered_map<std::string, Function> functions;
 };

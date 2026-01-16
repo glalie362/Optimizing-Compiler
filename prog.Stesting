@@ -1,0 +1,92 @@
+; func main_function
+; sum : int = alloc
+; zero : int = const 0
+; store sum, zero
+; x : int = alloc
+; zero_2 : int = const 0
+; store x, zero_2
+; L0:
+; x_cmp_val : int = const 10
+; is_x_lt_10 : int = lt x, x_cmp_val
+; b is_x_lt_10, L1, L2
+; L1:
+; y : int = alloc
+; zero : int = const 0
+; store y, zero
+; L3:
+; y_cmp_val : int = const 10
+; is_y_l_10 : int = lt y, y_cmp_val
+; b is_y_l_10, L4, L5
+; L4:
+; sum_plus_x : int = add sum, x
+; store sum, sum_plus_x
+; one : int = const 1
+; y_plus_one : int = add y, one
+; store y, y_plus_one
+; j L3
+; L5:
+; one_2 : int = const 1
+; x_plus_one : int = add x, one_2
+; store x, x_plus_one
+; j L0
+; L2:
+; ret sum
+;--------------
+bits 64
+section .text
+global main_function
+main_function:
+	push rbp
+	mov rbp, rsp
+	push rbx
+	push r12
+	sub rsp, 24
+	mov sum, 0
+	mov x, 0
+.L0:
+	mov rax, x
+	cmp rax, 10
+	setl al
+	movzx rax, al
+	mov r8, rax
+	mov rax, r8
+	test rax, rax
+	jnz .L1
+	jz .L2
+.L1:
+	mov y, 0
+.L3:
+	mov rax, y
+	cmp rax, 10
+	setl al
+	movzx rax, al
+	mov r10, rax
+	mov rax, r10
+	test rax, rax
+	jnz .L4
+	jz .L5
+.L4:
+	mov rax, sum
+	add rax, y
+	mov r11, rax
+	mov sum, r11
+	mov rax, y
+	add rax, 1
+	mov rbx, rax
+	mov y, rbx
+	jmp .L3
+.L5:
+	mov rax, x
+	add rax, 1
+	mov r12, rax
+	mov x, r12
+	jmp .L0
+.L2:
+	mov rax, sum
+	jmp main_function_epi
+main_function_epi:
+	pop r12
+	pop rbx
+	pop rbp
+	add rsp, 24
+	ret

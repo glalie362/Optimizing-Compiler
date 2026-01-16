@@ -9,15 +9,16 @@ struct X64 {
 	IRGen& ir;
 
 	enum class Reg {
-		rax, rbx, rcx, rdx, /*  */ r8, r9, r10, r11, r12, r13, r14, r15,
-		eax, ebx, ecx, edx, /*  */ r8d, r9d, r10d, r11d, r12d, r13d, r14d, r15d,
-		ax, bx, cx, dx, /*      */ r8w, r9w, r10w, r11w, r12w, r13w, r14w, r15w,
-		al, bl, cl, dl, /*      */ r8b, r9b, r10b, r11b, r12b, r13b, r14b, r15b,
+		rbp, rsp, rax, rbx, rcx, rdx, /*  */ r8, r9, r10, r11, r12, r13, r14, r15,
+		ebp, esp, eax, ebx, ecx, edx, /*  */ r8d, r9d, r10d, r11d, r12d, r13d, r14d, r15d,
+		bp, sp, ax, bx, cx, dx, /*      */ r8w, r9w, r10w, r11w, r12w, r13w, r14w, r15w,
+		bpl, spl, al, bl, cl, dl, /*      */ r8b, r9b, r10b, r11b, r12b, r13b, r14b, r15b,
 	};
 
-	constexpr static int num_qword_regs = 12;
+	constexpr static int num_qword_regs = 14;
 
 	enum class RegSize { Qword = 0, Dword = 1, Word = 2, Byte = 3 };
+
 
 	struct TypeSize {
 		RegSize elem_size{};
@@ -35,10 +36,10 @@ struct X64 {
 	};
 
 	const std::unordered_map<RegSize, std::array<Reg, num_qword_regs>> reg_by_size = {
-		{ RegSize::Qword, {Reg::rax, Reg::rbx, Reg::rcx, Reg::rdx, Reg::r8, Reg::r9, Reg::r10, Reg::r11, Reg::r12, Reg::r13, Reg::r14, Reg::r15}},
-		{ RegSize::Dword, {Reg::ebx, Reg::rbx, Reg::rcx, Reg::rdx, Reg::r8d, Reg::r9d, Reg::r10d, Reg::r11d, Reg::r12d, Reg::r13d, Reg::r14d, Reg::r15d}},
-		{ RegSize::Word, {Reg::ax, Reg::bx, Reg::cx, Reg::dx,  Reg::r8w, Reg::r9w, Reg::r10w, Reg::r11w, Reg::r12w, Reg::r13w, Reg::r14w, Reg::r15w}},
-		{ RegSize::Byte, {Reg::al, Reg::bl, Reg::cl, Reg::dl, Reg::r8b,  Reg::r9b, Reg::r10b, Reg::r11b, Reg::r12b, Reg::r13b, Reg::r14b, Reg::r15b}},
+		{ RegSize::Qword, {	Reg::rbp, Reg::rsp, Reg::rax, Reg::rbx, Reg::rcx, Reg::rdx, Reg::r8, Reg::r9, Reg::r10, Reg::r11, Reg::r12, Reg::r13, Reg::r14, Reg::r15}},
+		{ RegSize::Dword, {	Reg::ebp, Reg::esp, Reg::eax, Reg::rbx, Reg::rcx, Reg::rdx, Reg::r8d, Reg::r9d, Reg::r10d, Reg::r11d, Reg::r12d, Reg::r13d, Reg::r14d, Reg::r15d}},
+		{ RegSize::Word, {	Reg::bp,  Reg::sp, Reg::ax, Reg::bx, Reg::cx, Reg::dx,  Reg::r8w, Reg::r9w, Reg::r10w, Reg::r11w, Reg::r12w, Reg::r13w, Reg::r14w, Reg::r15w}},
+		{ RegSize::Byte, {	Reg::bpl, Reg::spl, Reg::al, Reg::bl, Reg::cl, Reg::dl, Reg::r8b,  Reg::r9b, Reg::r10b, Reg::r11b, Reg::r12b, Reg::r13b, Reg::r14b, Reg::r15b}},
 	};
 
 	// System dependent!
@@ -47,6 +48,8 @@ struct X64 {
 
 	constexpr static Reg to_largest_reg(const Reg reg) {
 		switch (reg) {
+			case Reg::rbp: case Reg::ebp: case Reg::bp: case Reg::bpl: return Reg::rbp;
+			case Reg::rsp: case Reg::esp: case Reg::sp: case Reg::spl: return Reg::rsp;
 			case Reg::rax: case Reg::eax: case Reg::ax: case Reg::al: return Reg::rax;
 			case Reg::rbx: case Reg::ebx: case Reg::bx: case Reg::bl: return Reg::rbx;
 			case Reg::rcx: case Reg::ecx: case Reg::cx: case Reg::cl: return Reg::rcx;
@@ -62,9 +65,20 @@ struct X64 {
 		}
 	}
 
+	constexpr static bool is_reg_callee_saved(const Reg reg) {
+		const auto promoted = to_largest_reg(reg);
+		for (const auto csr : callee_saved_regs) {
+			if (csr == promoted) return true;
+		}
+		return false;
+	}
+
+
 	constexpr const char* reg_to_string(const Reg reg) {
 #define X(reg) case Reg::reg: return #reg
 		switch (reg) {
+			X(rsp); X(esp); X(sp); X(spl);
+			X(rbp); X(ebp); X(bp); X(bpl);
 			X(rax); X(eax);  X(ax); X(al);
 			X(rbx); X(ebx);  X(bx); X(bl);
 			X(rcx); X(ecx);  X(cx); X(cl);
@@ -117,7 +131,7 @@ struct X64 {
 			std::int64_t imm;
 		};
 
-		ValueId value_id {NoValue};
+		ValueId value_id{ NoValue };
 
 		constexpr static Operand make_reg(const Reg r, const ValueId vid) {
 			return { Kind::Reg, {.reg = r}, vid };
@@ -143,8 +157,10 @@ struct X64 {
 			return kind == Kind::Mem;
 		}
 
+
 		constexpr bool operator == (const Operand& other) const {
 			if (kind != other.kind) return false;
+
 			switch (kind) {
 				case Kind::Reg: return reg == other.reg;
 				case Kind::Mem: return stack == other.stack;
@@ -153,10 +169,14 @@ struct X64 {
 		}
 	};
 
+	constexpr static X64::Operand reg(const X64::Reg r, const ValueId value_id = NoValue) {
+		return X64::Operand::make_reg(r, value_id);
+	};
+
 	struct MC {
 		enum class Opcode {
 			// Storage
-			Mov, MovZx,
+			Mov, MovZx, Push, Pop,
 			// Maths
 			Add, Sub,
 			Inc, Dec,
@@ -211,7 +231,7 @@ struct X64 {
 			return false;
 		}
 
-		constexpr bool is_conditional_jump() {
+		constexpr bool is_conditional_jump() const {
 			using enum Opcode;
 			switch (op) {
 				case Jl:
@@ -242,7 +262,7 @@ struct X64 {
 			}
 		}
 
-		constexpr MC negated_jump() {
+		constexpr MC negated_jump() const {
 			if (!is_conditional_jump()) {
 				throw std::runtime_error("internal error: jmp instruction is not conditional");
 			}
@@ -265,6 +285,14 @@ struct X64 {
 
 		constexpr static MC movzx(const Operand& dst, const Operand& src) {
 			return MC{ .op = Opcode::MovZx, .dst = dst, .src = src };
+		}
+
+		constexpr static MC push(const Operand& src) {
+			return MC{ .op = Opcode::Push, .src = src };
+		}
+
+		constexpr static MC pop(const Operand& src) {
+			return MC{ .op = Opcode::Pop, .src = src };
 		}
 
 		// Maths
@@ -344,7 +372,7 @@ struct X64 {
 		}
 
 		constexpr static MC jl(const Operand& dst) {
-			return MC{ .op = Opcode::Jl, .dst = dst};
+			return MC{ .op = Opcode::Jl, .dst = dst };
 		}
 
 		constexpr static MC jle(const Operand& dst) {
@@ -385,17 +413,25 @@ struct X64 {
 		}
 	};
 
+	struct FunctionMC {
+		int stack_size{};
+		std::vector<Reg> regs_to_restore;
+		std::unordered_set<Reg> claimed_callee_saved_regs;
+		std::vector<MC> prologue;
+		std::vector<MC> block;
+		std::vector<MC> epilogue;
+	};
+
 	// Emission
 	void module();
 	void function(const std::string& name, const Function& fn);
-	void instruction(const Inst& inst);
-	void push_mc(const MC& mci);
+	void instruction(std::vector<MC>& mc, const Inst& inst);
 
 	// Optimization
 	// implemented in x64-optimizer.cpp
-	void optimize();
-	bool pass_peephole();
-	bool pass_unused_labels();
+	void optimize(std::vector<MC>& mc);
+	bool pass_peephole(std::vector<MC>& mc);
+	bool pass_unused_labels(std::vector<MC>& mc);
 
 	// Allocation
 	// implemented in x64-allocator.cpp
@@ -405,20 +441,23 @@ struct X64 {
 	void alloc_stack(const ValueId value_id, const ValueLifetime lifetime);
 	void alloc_reg(const ValueId value_id, const Reg reg, const ValueLifetime lifetime);
 	bool is_temporary(const ValueId value_id);
-	
+	void save_callee_reg(const Reg reg);
+
 	// Location
 	void alloc_on_demand(const ValueId value_id);
 	Operand operand(const ValueId value_id);
-	std::string emit(const Operand& operand);
+	Operand location(const ValueId value_id);
+	Operand constant(const ValueId constant_value_id);
+	
 	// Assembly
-	void emit(const std::vector<MC>& mc);
+	std::string emit(const Operand& operand);
+	void emit(std::ostream& ts, const std::vector<MC>& mc);
 
-	int stack_size{};
 	std::unordered_map<ValueId, ValueLocation> locations;
 	std::unordered_map<Reg, ValueId> claimed_regs;
 
-
 	// Machine code
-	std::vector<MC> mc;
-	std::stringstream textstream;
+	FunctionMC function_mc;
+	//std::vector<MC> mc;
+	std::stringstream function_textstream;
 };

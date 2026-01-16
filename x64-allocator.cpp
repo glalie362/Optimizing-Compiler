@@ -36,6 +36,9 @@ void X64::consume(const ValueId value_id) {
 	if (l.lifetime == ValueLifetime::Persistent) return;
 
 	if (l.kind == ValueLocation::Kind::Reg) {
+
+		printf("consumed v%d\n", value_id);
+
 		claimed_regs.erase(l.loc.reg);
 		locations.erase(value_id);
 	}
@@ -57,10 +60,10 @@ X64::TypeSize X64::type_size(const AST::Type& type) {
 
 void X64::alloc_stack(const ValueId value_id, const ValueLifetime lifetime) {
 	auto& value = ir.values[value_id];
-	stack_size += type_size(value.type).num_bytes;
+	function_mc.stack_size += type_size(value.type).num_bytes;
 	locations[value_id] = {
 		.kind = ValueLocation::Kind::Stack,
-		.loc = stack_size,
+		.loc = function_mc.stack_size,
 		.lifetime = lifetime };
 }
 
@@ -83,7 +86,19 @@ bool X64::is_temporary(const ValueId value_id) {
 	return locations.at(value_id).lifetime == ValueLifetime::Temporary;
 }
 
+void X64::save_callee_reg(const Reg reg) {
+	if (!is_reg_callee_saved(reg)) {
+		throw std::runtime_error(std::format("internal error: {} is not a callee saved reg", reg_to_string(reg)));
+	}
+	if (function_mc.claimed_callee_saved_regs.contains(reg)) return;
+	function_mc.claimed_callee_saved_regs.emplace(reg);
+	function_mc.regs_to_restore.push_back(reg);
+}
+
 void X64::alloc_on_demand(const ValueId value_id) {
+	// Is it already allocated?
+	if (locations.contains(value_id)) return;
+
 	// First, try the volatile regs
 	for (auto r : volatile_regs) {
 		if (r == Reg::rax) continue;
@@ -97,6 +112,7 @@ void X64::alloc_on_demand(const ValueId value_id) {
 	for (auto r : callee_saved_regs) {
 		if (!claimed_regs.contains(r)) {
 			alloc_reg(value_id, r, ValueLifetime::Temporary);
+			save_callee_reg(r);
 			return;
 		}
 	}

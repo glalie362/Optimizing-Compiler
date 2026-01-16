@@ -1,15 +1,61 @@
 #include "x64.hpp"
 
-void X64::optimize() {
-	while (
-		pass_peephole() ||
-		pass_unused_labels()
-		) {
+enum class CompileTimeComparison {
+	Lesser,
+	LesserOrEqual,
+	Greater,
+	GreaterOrEqual,
+	Equal,
+	NotEqual,
+	NotZero,
+	IsZero,
+	And,
+	Or,
+	Xor,
+};
+
+constexpr static CompileTimeComparison conditional_jump_to_comparison(const X64::MC& mc) {
+	if (!mc.is_conditional_jump()) {
+		throw std::runtime_error("internal error: machine code not a conditional jump");
+	}
+	using res = CompileTimeComparison;
+	using enum X64::MC::Opcode;
+
+	switch (mc.op) {
+		case Jl: return res::Lesser;
+		case Jle: return res::LesserOrEqual;
+		case Jg: return res::Greater;
+		case Jge: return res::GreaterOrEqual;
+		case Je: return res::Equal;
+		case Jne: return res::NotEqual;
+		case Jnz: return res::NotZero;
+		case Jz: return res::IsZero;
 	}
 }
 
+constexpr static bool compile_time_binary_compare(auto l, auto r, CompileTimeComparison cmp) {
+	using enum CompileTimeComparison;
+	switch (cmp) {
+		case Lesser: return l < r;
+		case LesserOrEqual: return l <= r;
+		case Greater: return l > r;
+		case GreaterOrEqual: return l >= r;
+		case Equal: return l == r;
+		case NotEqual: return l != r;
+		case And: return l & r;
+		case Or: return l | r;
+		case Xor: return l ^ r;
+		default:
+		throw std::runtime_error("internal error: invalid arguments given for binary comparison");
+	}
+}
 
-bool X64::pass_peephole() {
+void X64::optimize(std::vector<MC>& mc) {
+	while (pass_peephole(mc) || pass_unused_labels(mc));
+}
+
+
+bool X64::pass_peephole(std::vector<MC>& mc) {
 	bool changed = false;
 
 	using enum MC::Opcode;
@@ -32,6 +78,47 @@ bool X64::pass_peephole() {
 			}
 		}
 
+		// Constant comparison via registers
+		// mov rX, IMM1
+		// mov rY, IMM2
+		// mov rax, rX
+		// cmp rax, rY
+		// jcc T
+		// jcc F
+
+		// Disabled in favour of IR optimization
+		if (false) if (remaining(5)) {
+			auto& b = it[1];
+			auto& c = it[2];
+			auto& d = it[3];
+			auto& e = it[4];
+
+			if (a.op == Mov && a.src->is_imm() &&
+				b.op == Mov && b.src->is_imm() &&
+				c.op == Mov && c.dst->is_reg() && c.dst->reg == rax &&
+				*c.src == *a.dst &&
+				d.op == Cmp &&
+				*d.lhs == *c.dst &&
+				*d.rhs == *b.dst &&
+				e.is_conditional_jump()) {
+
+				const auto l = a.src->imm;
+				const auto r = b.src->imm;
+				const auto cmp = conditional_jump_to_comparison(e);
+				const bool res = compile_time_binary_compare(l, r, cmp);
+
+				MC fold = MC::jmp(*(res ? e.dst : it[5].dst));
+
+				*it = fold;
+				mc.erase(it + 1, it + 6);
+
+				changed = true;
+				continue;
+			}
+		}
+
+
+
 		// Redundant mov elimination
 		// mov rax, X
 		// mov Y, rax
@@ -53,6 +140,7 @@ bool X64::pass_peephole() {
 				continue;
 			}
 		}
+
 
 		// Math-shuffle elimination
 		// mov A, C
@@ -86,7 +174,7 @@ bool X64::pass_peephole() {
 		// mov rcx, rbx OR imm
 		// add rdx, rcx
 		// -> add rdx, rbx OR imm
-		if (false) if (remaining(1)) {
+		if (remaining(1)) {
 			auto& b = it[1];
 			if (
 				a.op == Mov && b.is_binary_math_operation() &&
@@ -119,7 +207,7 @@ bool X64::pass_peephole() {
 			}
 		}
 
-		// Xor const to cmp folding
+		// Self-Xor & Cmp Self, 0 fold
 		// xor const, const
 		// cmp X, const
 		// ->
@@ -210,23 +298,6 @@ bool X64::pass_peephole() {
 			}
 		}
 
-
-		// Add -> inc
-		// add rax, 1
-		// -> inc rax
-		if (false) if (a.op == Add && a.src->is_imm() && a.src->imm == 1) {
-			*it = MC::inc(*a.dst);
-			changed = true;
-			continue;
-		}
-		// Sub to dec
-		// sub rax, 1
-		// -> dec rax
-		if (false) if (a.op == Dec && a.src->is_imm() && a.src->imm == 1) {
-			*it = MC::dec(*a.dst);
-			changed = true;
-			continue;
-		}
 
 		// Xor to Zero
 		// mov XXX, 0
@@ -342,13 +413,125 @@ bool X64::pass_peephole() {
 			}
 		}
 
+		// Constant comparison elimination
+		// 	mov rax, X
+		//  cmp rax, Y
+		//	jTRUE .L_A
+		//	jFALSE .L_B
+		// ->
+		// if the condition is true:
+		// mov rax, X
+		// jmp L_TRUE
+		// -
+		// if the condition is false:
+		// mov rax, X
+		// jmp L_FALSE
+
+		if (remaining(4)) {
+			const auto cmp_mc = it[1];
+			const auto jmp_if_true = it[2];
+			const auto jmp_if_false = it[3];
+
+			if (a.op == Mov && a.dst->is_reg() && a.dst->reg == rax &&
+				a.src->is_imm() &&
+				cmp_mc.op == Cmp && cmp_mc.lhs->is_reg() && cmp_mc.lhs->reg == rax && cmp_mc.rhs->is_imm() &&
+				jmp_if_true.is_conditional_jump() && jmp_if_false.is_conditional_jump()) {
+				const auto l = a.src->imm;
+				const auto r = cmp_mc.rhs->imm;
+				const auto cmp_type = conditional_jump_to_comparison(jmp_if_true);
+				const bool is_cmp_true = compile_time_binary_compare(l, r, cmp_type);
+				auto true_dst = *(is_cmp_true ? jmp_if_true.dst : jmp_if_false.dst);
+
+				it = std::next(it);
+				it = mc.erase(it, it + 2);
+				it = mc.insert(it, MC::jmp(true_dst));
+
+				changed = true;
+				continue;
+			}
+		}
+
+		// Contant elimination
+		//	A: mov rcx, 1
+		//  B: mov rax, rcx
+		// ->
+		// mov rax, 1
+		if (remaining(1)) {
+			auto b = it[1];
+
+			if (a.op == Mov &&
+				b.op == Mov &&
+				a.src->is_imm() &&
+				a.dst->is_reg() &&
+				*b.dst == *a.src
+				) {
+
+				MC folded = MC::mov(*b.dst, *a.src);
+
+				*it = folded;
+				mc.erase(it + 1);
+
+				changed = true;
+				continue;
+			}
+		}
+
+		// RAX elimination
+		// mov rax, rcx
+		// cmp rax, rdx
+		// ->
+		// cmp rcx, rdx
+
+		if (remaining(2)) {
+			auto b = it[1];
+			if (a.op == Mov && a.dst->is_reg() && a.dst->reg == rax &&
+				b.op == Cmp && b.lhs->is_reg() && b.lhs->reg == rax
+				) {
+				auto old_src = a.src;
+				it = mc.erase(it);
+				it->lhs = old_src;
+				changed = true;
+				continue;
+			}
+		}
+
+		// Redundant jXX removal
+		// cmp X, Y
+		// J_if_true Ltrue
+		// J_if_false Lfalse
+		// Ltrue:...
+		// ->
+		// cmp X, Y
+		// jge Lfalse
+		// ltrue:
+		if (remaining(4)) {
+			auto b = it[1];
+			auto c = it[2];
+			auto d = it[3];
+
+			if (
+				a.op == Cmp &&
+				b.is_conditional_jump() &&
+				c.op == b.negated_jump().op &&
+				d.op == Label &&
+				*d.lbl == b.dst->imm) {
+
+				it = std::next(it);
+				it = mc.erase(it);
+				changed = true;
+				continue;
+			}
+
+		}
+
+
 		it = std::next(it);
 	}
 
 	return changed;
 }
 
-bool X64::pass_unused_labels() {
+bool X64::pass_unused_labels(std::vector<MC>& mc) {
 	bool changed = false;
 	std::unordered_set<int> referenced_labels;
 

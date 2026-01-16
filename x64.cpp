@@ -31,87 +31,106 @@ struct AllocationStrategy {
 
 const static std::unordered_map<Opcode, AllocationStrategy> alloc_strategy = {
 	{Opcode::Alloc,				{"p"}},
-	{Opcode::Const,				{"tn"}},
-	{Opcode::Store,				{"xny"}},
+	{Opcode::Const,				{"sn"}},
+	{Opcode::Store,				{"xnn"}},
 	{Opcode::Load,				{"tn"}},
-	{Opcode::Add,				{"tny"}},
-	{Opcode::Sub,				{"tny"}},
-	{Opcode::Lesser,			{"tny"}},
-	{Opcode::LesserOrEqual,		{"tny"}},
-	{Opcode::Greater,			{"tny"}},
-	{Opcode::GreaterOrEqual,	{"tny"}},
-	{Opcode::Equal,				{"tny"}},
-	{Opcode::NotEqual,			{"tny"}},
-	{Opcode::And,				{"tny"}},
-	{Opcode::Or,				{"tny"}},
-	{Opcode::Xor,				{"tny"}},
+	{Opcode::Add,				{"tnn"}},
+	{Opcode::Sub,				{"tnn"}},
+	{Opcode::Lesser,			{"tnn"}},
+	{Opcode::LesserOrEqual,		{"tnn"}},
+	{Opcode::Greater,			{"tnn"}},
+	{Opcode::GreaterOrEqual,	{"tnn"}},
+	{Opcode::Equal,				{"tnn"}},
+	{Opcode::NotEqual,			{"tnn"}},
+	{Opcode::And,				{"tnn"}},
+	{Opcode::Or,				{"tnn"}},
+	{Opcode::Xor,				{"tnn"}},
 	{Opcode::Label,				{"xn"}},
-	{Opcode::Branch,			{"xynn"}},
+	{Opcode::Branch,			{"xnnn"}},
 	{Opcode::Jump,				{"xn"}},
 	{Opcode::Return,			{"xn"}},
 };
 
 void X64::module() {
-	textstream << "bits 64\n";
-	textstream << "section .text\n";
+	function_textstream << "bits 64\n";
+	function_textstream << "section .text\n";
 	for (const auto& [fn_name, fn] : ir.mod.functions) {
-		textstream << "global " << fn_name << '\n';
+		function_textstream << "global " << fn_name << '\n';
 		function(fn_name, fn);
 	}
 }
 
 void X64::function(const std::string& name, const Function& fn) {
-	const auto lifetime = [&](const ValueId value_id) {
-		if (ir.constants.contains(value_id)) {
-			return ValueLifetime::Temporary;
-		} else {
-			return ValueLifetime::Persistent;
-		}
-	};
-
-	// pass 1 - allocate
-	for (const auto& inst : fn.insts) {
-		const auto& strat = alloc_strategy.at(inst.opcode);
-		const auto& maybe_lifetime = strat.lifetime;
-		if (!maybe_lifetime) continue;
-		//produces(inst.result, *maybe_lifetime);
-	}
-
 	const auto align_16 = [](const auto value) {
 		return (value + 15) & ~std::size_t(15);
 	};
 
-	textstream << name << ":\n";
-	textstream << "\tpush rbp\n";
-	textstream << "\tmov rbp, rsp\n";
-	if (stack_size) {
-		textstream << "\tsub rbp, " << align_16(stack_size) - 8 << '\n';
-	}
+	function_mc = {};
 
-	mc.clear();
-
-	// pass 2 - generate machine code
+	// Can be moved
+	function_textstream << name << ":\n";
+	
+	// generate machine code
 	for (const auto& inst : fn.insts) {
-		instruction(inst);
+		instruction(function_mc.block, inst);
 	}
+
+	const auto save_stack_frame = [&]() {
+		function_mc.claimed_callee_saved_regs.emplace(Reg::rbp);
+		function_mc.prologue.push_back(MC::push(reg(Reg::rbp)));
+		function_mc.prologue.push_back(MC::mov(reg(Reg::rbp), reg(Reg::rsp)));
+	};
+
+	int ss = align_16(function_mc.stack_size) + (1 + function_mc.regs_to_restore.size()) * 8;
+
+	const auto save_regs = [&]() {
+		for (const auto r: function_mc.regs_to_restore) {
+			function_mc.prologue.push_back(MC::push(reg(r)));
+		}
+
+		if (ss) {
+			function_mc.prologue.push_back(MC::sub(reg(Reg::rsp), Operand::make_imm(ss)));
+		}
+	};
+
+	const auto restore_regs = [&]() {
+		for (auto it = function_mc.regs_to_restore.rbegin(); it != function_mc.regs_to_restore.rend(); it = std::next(it)) {
+			function_mc.epilogue.push_back(MC::pop(reg(*it)));
+		}
+		function_mc.epilogue.push_back(MC::pop(reg(Reg::rbp)));
+
+		if (ss) {
+			function_mc.epilogue.push_back(MC::add(reg(Reg::rsp), Operand::make_imm(ss)));
+		}
+
+	};
+
+	save_stack_frame();
+	save_regs();
+	restore_regs();
 
 	// Optimization
-	optimize();
+	optimize(function_mc.block);
 
 	// Assembly
-	emit(mc);
+	emit(function_textstream, function_mc.prologue);
+	emit(function_textstream, function_mc.block);
+
+	function_textstream << ".epi:\n";
+	emit(function_textstream, function_mc.epilogue);
+	function_textstream << "\tret\n";
 }
 
-constexpr static X64::Operand reg(const X64::Reg r, const ValueId value_id = NoValue) {
-	return X64::Operand::make_reg(r, value_id);
-};
-
-void X64::instruction(const Inst& inst) {
+void X64::instruction(std::vector<MC>& mc, const Inst& inst) {
 	const auto& strat = alloc_strategy.at(inst.opcode);
 
 	if (strat.lifetime && *strat.lifetime != ValueLifetime::Scratch) {
 		alloc_on_demand(inst.result);
 	}
+
+	const auto push_mc = [&](auto ins) {
+		mc.push_back(ins);
+	};
 
 	using enum Reg;
 	using enum Opcode;
@@ -120,7 +139,6 @@ void X64::instruction(const Inst& inst) {
 	const auto src = [&]() { return inst_operand(0); };
 	const auto lhs = [&]() { return inst_operand(0); };
 	const auto rhs = [&]() { return inst_operand(1); };
-
 
 	const auto cmp = [&](auto&& set_reg_to_result) {
 		push_mc(MC::mov(reg(rax), lhs()));
@@ -133,10 +151,12 @@ void X64::instruction(const Inst& inst) {
 	switch (inst.opcode) {
 		case Alloc: break;
 		case Const: {
+			/*
 			const auto& v = ir.constants.at(inst.result);
 			std::visit([&](auto&& val) {
-				push_mc(MC::mov(operand(inst.result), Operand::make_imm(val)));
+				//push_mc(MC::mov(operand(inst.result), Operand::make_imm(val)));
 			}, v.data);
+			*/
 		} break;
 		case Store: push_mc(MC::mov(inst_operand(0), inst_operand(1)));  break;
 		case Load:
@@ -181,37 +201,39 @@ void X64::instruction(const Inst& inst) {
 		break;
 	}
 
-	// second pass: consumption
-	for (int i = 0; i <inst.operands.size(); ++i) {
+	// consumption
+	for (int i = 0; i < inst.operands.size(); ++i) {
 		if (strat.consumption[i]) {
 			consume(inst.operands[i]);
 		}
 	}
 }
 
-void X64::push_mc(const MC& mci) {
-	mc.push_back(mci);
-}
-
 X64::Operand X64::operand(const ValueId value_id) {
-	if (ir.constants.contains(value_id)) {
-		// It must be a constant
-		return std::visit([&](auto&& v) {
-			return Operand::make_imm((int64_t)v, value_id);
-		}, ir.constants.at(value_id).data);
-	}
-
-
 	if (locations.contains(value_id)) {
-		// must have a location
-		const auto& loc = locations.at(value_id);
-		if (loc.kind == ValueLocation::Kind::Reg) {
-			return Operand::make_reg((Reg)loc.loc.reg, value_id);
-		} else {
-			return Operand::make_mem(loc.loc.stack, value_id);
-		}
+		return location(value_id);
+	}
+	if (ir.constants.contains(value_id)) {
+		return constant(value_id);
 	}
 	throw std::runtime_error("internal error: use of unallocated value");
+}
+
+X64::Operand X64::constant(const ValueId constant_value_id) {
+	// It must be a constant
+	return std::visit([&](auto&& v) {
+		return Operand::make_imm((int64_t)v, constant_value_id);
+	}, ir.constants.at(constant_value_id).data);
+}
+
+
+X64::Operand X64::location(const ValueId value_id) {
+	const auto& loc = locations.at(value_id);
+	if (loc.kind == ValueLocation::Kind::Reg) {
+		return Operand::make_reg((Reg)loc.loc.reg, value_id);
+	} else {
+		return Operand::make_mem(loc.loc.stack, value_id);
+	}
 }
 
 std::string X64::emit(const Operand& op) {
@@ -226,62 +248,63 @@ std::string X64::emit(const Operand& op) {
 	//std::unreachable();
 }
 
-void X64::emit(const std::vector<MC> &mc) {
+void X64::emit(std::ostream& ts, const std::vector<MC>& mc) {
 	using enum MC::Opcode;
 	using std::format;
-	auto& t = textstream;
 
 	for (const auto& ins : mc) {
 		switch (ins.op) {
 			// Mov
 			case Mov:
 			if (ins.dst->value_id != NoValue && ins.dst->is_mem()) {
-				t << format("\tmov {} {}, {}\n", type_size(ir.values.at(ins.dst->value_id).type).str(), emit(*ins.dst), emit(*ins.src)); break;
+				ts << format("\tmov {} {}, {}\n", type_size(ir.values.at(ins.dst->value_id).type).str(), emit(*ins.dst), emit(*ins.src)); break;
 			} else {
-				t << format("\tmov {}, {}\n", emit(*ins.dst), emit(*ins.src)); break;
+				ts << format("\tmov {}, {}\n", emit(*ins.dst), emit(*ins.src)); break;
 			}
 			break;
 
-			case MovZx:	t << format("\tmovzx {}, {}\n", emit(*ins.dst), emit(*ins.src)); break;
+			case Push: ts << format("\tpush {}\n", emit(*ins.src)); break;
+			case Pop: ts << format("\tpop {}\n", emit(*ins.src)); break;
+
+			case MovZx:	ts << format("\tmovzx {}, {}\n", emit(*ins.dst), emit(*ins.src)); break;
 				// Math
-			case Add:	t << format("\tadd {}, {}\n", emit(*ins.dst), emit(*ins.src)); break;
-			case Sub:	t << format("\tsub {}, {}\n", emit(*ins.dst), emit(*ins.src)); break;
-			case Inc:	t << format("\tinc {}\n", emit(*ins.src)); break;
-			case Dec:	t << format("\tdec {}\n", emit(*ins.src)); break;
+			case Add:	ts << format("\tadd {}, {}\n", emit(*ins.dst), emit(*ins.src)); break;
+			case Sub:	ts << format("\tsub {}, {}\n", emit(*ins.dst), emit(*ins.src)); break;
+			case Inc:	ts << format("\tinc {}\n", emit(*ins.src)); break;
+			case Dec:	ts << format("\tdec {}\n", emit(*ins.src)); break;
 				// Logic
-			case And:	t << format("\tand {}, {}\n", emit(*ins.dst), emit(*ins.src)); break;
-			case Or:	t << format("\tor {}, {}\n", emit(*ins.dst), emit(*ins.src)); break;
-			case Xor:	t << format("\txor {}, {}\n", emit(*ins.dst), emit(*ins.src)); break;
+			case And:	ts << format("\tand {}, {}\n", emit(*ins.dst), emit(*ins.src)); break;
+			case Or:	ts << format("\tor {}, {}\n", emit(*ins.dst), emit(*ins.src)); break;
+			case Xor:	ts << format("\txor {}, {}\n", emit(*ins.dst), emit(*ins.src)); break;
 				// Cmps
-			case Cmp:	t << format("\tcmp {}, {}\n", emit(*ins.lhs), emit(*ins.rhs)); break;
-			case Test:	t << format("\ttest {}, {}\n", emit(*ins.lhs), emit(*ins.rhs)); break;
+			case Cmp:	ts << format("\tcmp {}, {}\n", emit(*ins.lhs), emit(*ins.rhs)); break;
+			case Test:	ts << format("\ttest {}, {}\n", emit(*ins.lhs), emit(*ins.rhs)); break;
 				// Setxx
-			case Setl:	t << format("\tsetl {}\n", emit(*ins.dst)); break;
-			case Setle:	t << format("\tsetle {}\n", emit(*ins.dst)); break;
-			case Setg:	t << format("\tsetg {}\n", emit(*ins.dst)); break;
-			case Setge:	t << format("\tsetge {}\n", emit(*ins.dst)); break;
-			case Sete:	t << format("\tsete {}\n", emit(*ins.dst)); break;
-			case Setne:	t << format("\tsetne {}\n", emit(*ins.dst)); break;
+			case Setl:	ts << format("\tsetl {}\n", emit(*ins.dst)); break;
+			case Setle:	ts << format("\tsetle {}\n", emit(*ins.dst)); break;
+			case Setg:	ts << format("\tsetg {}\n", emit(*ins.dst)); break;
+			case Setge:	ts << format("\tsetge {}\n", emit(*ins.dst)); break;
+			case Sete:	ts << format("\tsete {}\n", emit(*ins.dst)); break;
+			case Setne:	ts << format("\tsetne {}\n", emit(*ins.dst)); break;
 				// Jumps
-			case Jmp:	t << format("\tjmp .L{}\n", emit(*ins.dst)); break;
-			case Jnz:	t << format("\tjnz .L{}\n", emit(*ins.dst)); break;
-			case Jz:	t << format("\tjz .L{}\n", emit(*ins.dst)); break;
-			case Jl:	t << format("\tjl .L{}\n", emit(*ins.dst)); break;
-			case Jle:	t << format("\tjle .L{}\n", emit(*ins.dst)); break;
-			case Jg:	t << format("\tjg .L{}\n", emit(*ins.dst)); break;
-			case Jge:	t << format("\tjge .L{}\n", emit(*ins.dst)); break;
-			case Je:	t << format("\tje .L{}\n", emit(*ins.dst)); break;
-			case Jne:	t << format("\tjne .L{}\n", emit(*ins.dst)); break;
+			case Jmp:	ts << format("\tjmp .L{}\n", emit(*ins.dst)); break;
+			case Jnz:	ts << format("\tjnz .L{}\n", emit(*ins.dst)); break;
+			case Jz:	ts << format("\tjz .L{}\n", emit(*ins.dst)); break;
+			case Jl:	ts << format("\tjl .L{}\n", emit(*ins.dst)); break;
+			case Jle:	ts << format("\tjle .L{}\n", emit(*ins.dst)); break;
+			case Jg:	ts << format("\tjg .L{}\n", emit(*ins.dst)); break;
+			case Jge:	ts << format("\tjge .L{}\n", emit(*ins.dst)); break;
+			case Je:	ts << format("\tje .L{}\n", emit(*ins.dst)); break;
+			case Jne:	ts << format("\tjne .L{}\n", emit(*ins.dst)); break;
 				// Decl
-			case Label: t << format(".L{}:\n", *ins.lbl); break;
+			case Label: ts << format(".L{}:\n", *ins.lbl); break;
 			case Ret:
 			if (ins.src) {
-				t << format("\tmov rax, {}\n", emit(*ins.src));
+				ts << format("\tmov rax, {}\n", emit(*ins.src));
 			}
-			t << format("\tpop rbp\n");
-			t << format("\tret\n");
+			ts << "\tjmp .epi\n";
 			break;
-			case Nop:	t << format("\tnop\n"); break;
+			case Nop:	ts << "\tnop\n"; break;
 		}
 	}
 }

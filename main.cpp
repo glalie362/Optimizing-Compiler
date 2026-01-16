@@ -138,7 +138,7 @@ void out(IRGen& irgen, X64& x64, std::ostream& os, bool comments = false) {
 
 
 	string line;
-	while (getline(x64.textstream, line, '\n')) {
+	while (getline(x64.function_textstream, line, '\n')) {
 		os << line << '\n';
 	}
 }
