@@ -75,12 +75,15 @@ void X64::function(const std::string& name, const Function& fn) {
 		instruction(function_mc.block, inst);
 	}
 
-	int ss = align_16(function_mc.stack_size) + (1 + function_mc.regs_to_restore.size()) * 8;
+	const int ss = align_16(function_mc.stack_size);
 
 	const auto gen_prologue = [&]() {
-		function_mc.claimed_callee_saved_regs.emplace(Reg::rbp);
-		function_mc.prologue.push_back(MC::push(reg(Reg::rbp)));
-		function_mc.prologue.push_back(MC::mov(reg(Reg::rbp), reg(Reg::rsp)));
+
+		if (ss) {
+			function_mc.claimed_callee_saved_regs.emplace(Reg::rbp);
+			function_mc.prologue.push_back(MC::push(reg(Reg::rbp)));
+			function_mc.prologue.push_back(MC::mov(reg(Reg::rbp), reg(Reg::rsp)));
+		}
 
 		for (const auto r : function_mc.regs_to_restore) {
 			function_mc.prologue.push_back(MC::push(reg(r)));
@@ -96,8 +99,8 @@ void X64::function(const std::string& name, const Function& fn) {
 		for (auto it = function_mc.regs_to_restore.rbegin(); it != function_mc.regs_to_restore.rend(); it = std::next(it)) {
 			function_mc.epilogue.push_back(MC::pop(reg(*it)));
 		}
-		function_mc.epilogue.push_back(MC::pop(reg(Reg::rbp)));
 		if (ss) {
+			function_mc.epilogue.push_back(MC::pop(reg(Reg::rbp)));
 			function_mc.epilogue.push_back(MC::add(reg(Reg::rsp), Operand::make_imm(ss)));
 		}
 		function_mc.epilogue.push_back(MC::ret());

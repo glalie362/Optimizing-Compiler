@@ -25,7 +25,6 @@
     <ClInclude Include="parser.hpp" />
     <ClInclude Include="token.hpp" />
     <ClInclude Include="util.hpp" />
-    <ClInclude Include="x64-mc.hpp" />
     <ClInclude Include="x64-optimizer.hpp" />
     <ClInclude Include="x64.hpp" />
   </ItemGroup>
@@ -43,9 +42,9 @@
     <None Include=".gitattributes" />
     <None Include=".gitignore" />
     <None Include="prog.in" />
+    <None Include="optimized.S" />
     <None Include="prog.S" />
-    <None Include="prog.Stesting" />
-    <None Include="prog.Sold" />
+    <None Include="unoptimized.S" />
     <None Include="README.md" />
   </ItemGroup>
   <PropertyGroup Label="Globals">

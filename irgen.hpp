@@ -2,7 +2,6 @@
 #include "ir.hpp"
 #include <optional>
 
-
 struct IRGen {
 	struct Scope {
 		std::unordered_map<std::string, ValueId> symbols;

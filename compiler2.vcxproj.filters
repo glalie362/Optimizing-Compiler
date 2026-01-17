@@ -36,9 +36,6 @@
     <ClInclude Include="x64-optimizer.hpp">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="x64-mc.hpp">
-      <Filter>Header Files</Filter>
-    </ClInclude>
     <ClInclude Include="is_optimizer.hpp">
       <Filter>Header Files</Filter>
     </ClInclude>
@@ -71,11 +68,11 @@
   </ItemGroup>
   <ItemGroup>
     <None Include="prog.in" />
-    <None Include="prog.Sold" />
-    <None Include="prog.Stesting" />
     <None Include=".gitattributes" />
     <None Include=".gitignore" />
     <None Include="README.md" />
+    <None Include="optimized.S" />
+    <None Include="unoptimized.S" />
     <None Include="prog.S" />
   </ItemGroup>
 </Project>

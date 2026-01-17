@@ -81,3 +81,9 @@ struct Function {
 struct Module {
 	std::unordered_map<std::string, Function> functions;
 };
+
+struct BasicBlock {
+	std::vector<Inst> inst;
+	std::vector<BasicBlock*> predecessors;
+	std::vector<BasicBlock*> successors;
+};
