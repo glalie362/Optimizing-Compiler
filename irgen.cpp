@@ -60,7 +60,10 @@ ValueId IRGen::function(const AST::Function& function) {
 		return NoValue;
 	}
 	current_fn = &mod.functions[function.name];
+	current_fn->epi_lbl = new_label();
 	gen(function.block);
+	push_label(current_fn->epi_lbl);
+
 	return NoValue;
 }
 

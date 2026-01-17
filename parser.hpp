@@ -40,6 +40,7 @@ struct Parser {
 	AST::Ptr parse_variable(Context context);
 
 	AST::Ptr parse_identifier();
+	AST::Ptr parse_number();
 	AST::Ptr parse_binary(AST::Ptr&& left);
 
 	AST::Type parse_type();

@@ -33,6 +33,15 @@
     <ClInclude Include="x64.hpp">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="x64-optimizer.hpp">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="x64-mc.hpp">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="is_optimizer.hpp">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="main.cpp">

@@ -21,9 +21,12 @@
   <ItemGroup>
     <ClInclude Include="irgen.hpp" />
     <ClInclude Include="ir.hpp" />
+    <ClInclude Include="is_optimizer.hpp" />
     <ClInclude Include="parser.hpp" />
     <ClInclude Include="token.hpp" />
     <ClInclude Include="util.hpp" />
+    <ClInclude Include="x64-mc.hpp" />
+    <ClInclude Include="x64-optimizer.hpp" />
     <ClInclude Include="x64.hpp" />
   </ItemGroup>
   <ItemGroup>

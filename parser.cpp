@@ -117,13 +117,7 @@ AST::Ptr Parser::parse_stmt() {
 
 AST::Ptr Parser::parse_expr() {
 	if (check(Token::Type::Number)) {
-		// TODO: parse_number() to support binary operations
-		return make_ast(AST::LiteralExpr{ .type =
-			AST::Type {
-				.name = "int",
-				.qualifiers = {}
-			},
-			.value = next().text });
+		return parse_number();
 	}
 
 	if (check(Token::Type::String)) {
@@ -161,13 +155,13 @@ AST::Ptr Parser::parse_if(Context context) {
 	if (!condition) return nullptr;
 
 	// it is a block-if
-	if (check(Token::Type::LeftSqBracket)) {
+	if (check(Token::Type::LeftBrace)) {
 		next();
 		AST::Ptr then_block = parse_block();
 		AST::Ptr else_block = nullptr;
 		if (check(Token::Type::Else)) {
 			next();
-			if (check(Token::Type::LeftSqBracket)) {
+			if (check(Token::Type::LeftBrace)) {
 				next();
 				else_block = parse_block();
 			} else {
@@ -435,6 +429,21 @@ AST::Ptr Parser::parse_identifier() {
 	return ident;
 }
 
+AST::Ptr Parser::parse_number() {
+	auto num = make_ast(AST::LiteralExpr{ .type =
+		AST::Type {
+			.name = "int",
+			.qualifiers = {}
+		},
+		.value = next().text });
+
+	if (check_binary()) {
+		return parse_binary(std::move(num));
+	}
+
+	return num;
+}
+
 AST::Ptr Parser::parse_binary(AST::Ptr&& left) {
 	const AST::BinaryExpr::Kind kind = [&]() {
 		switch (next().type) {
@@ -453,7 +462,10 @@ AST::Ptr Parser::parse_binary(AST::Ptr&& left) {
 	}();
 
 	auto expr = parse_expr();
-	if (!expr) return nullptr;
+	if (!expr) {
+		push_error("expected expression in right hand side of binary expression");
+		return nullptr;
+	}
 
 	return make_ast(AST::BinaryExpr{
 		.left = std::move(left),

@@ -1,12 +1,16 @@
 #pragma once
 #include "irgen.hpp"
+#include "is_optimizer.hpp"
+
 #include <sstream>
 #include <array>
 #include <unordered_set>
 
+struct X64Optimizer;
 
 struct X64 {
 	IRGen& ir;
+	X64Optimizer& optimizer;
 
 	enum class Reg {
 		rbp, rsp, rax, rbx, rcx, rdx, /*  */ r8, r9, r10, r11, r12, r13, r14, r15,
@@ -18,7 +22,6 @@ struct X64 {
 	constexpr static int num_qword_regs = 14;
 
 	enum class RegSize { Qword = 0, Dword = 1, Word = 2, Byte = 3 };
-
 
 	struct TypeSize {
 		RegSize elem_size{};
@@ -153,8 +156,16 @@ struct X64 {
 			return kind == Kind::Imm;
 		}
 
+		constexpr bool is_imm(const int64_t val) const {
+			return is_imm() && imm == val;
+		}
+
 		constexpr bool is_mem() const {
 			return kind == Kind::Mem;
+		}
+
+		constexpr bool is_rax() const {
+			return is_reg() && reg == Reg::rax;
 		}
 
 
@@ -415,6 +426,7 @@ struct X64 {
 
 	struct FunctionMC {
 		int stack_size{};
+		int epi_lbl{};
 		std::vector<Reg> regs_to_restore;
 		std::unordered_set<Reg> claimed_callee_saved_regs;
 		std::vector<MC> prologue;
@@ -428,10 +440,7 @@ struct X64 {
 	void instruction(std::vector<MC>& mc, const Inst& inst);
 
 	// Optimization
-	// implemented in x64-optimizer.cpp
 	void optimize(std::vector<MC>& mc);
-	bool pass_peephole(std::vector<MC>& mc);
-	bool pass_unused_labels(std::vector<MC>& mc);
 
 	// Allocation
 	// implemented in x64-allocator.cpp

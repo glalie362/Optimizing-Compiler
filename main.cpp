@@ -1,5 +1,6 @@
 #include "parser.hpp"
 #include "x64.hpp"
+#include "x64-optimizer.hpp"
 #include <iostream>
 #include <iomanip>
 #include <format>
@@ -132,11 +133,7 @@ void out(IRGen& irgen, X64& x64, std::ostream& os, bool comments = false) {
 			os << '\n';
 		}
 	}
-
-
 	os << ";--------------\n";
-
-
 	string line;
 	while (getline(x64.function_textstream, line, '\n')) {
 		os << line << '\n';
@@ -169,8 +166,11 @@ int main() {
 			cout << format("error: {}", err) << '\n';
 		}
 	}
-	X64 x64{ irgen };
+
+	X64Optimizer optimizer{ irgen };
+	X64 x64{ irgen, optimizer };
 	x64.module();
+
 
 	ofstream outf("prog.S");
 	out(irgen, x64, outf);

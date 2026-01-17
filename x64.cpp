@@ -1,8 +1,9 @@
 #include"x64.hpp"
+#include "x64-optimizer.hpp"
+
 #include <format>
 
-// Grand allocation table
-
+// To be removed:
 struct AllocationStrategy {
 	std::optional<X64::ValueLifetime> lifetime = std::nullopt;
 	std::vector<bool> consumption{};
@@ -34,7 +35,7 @@ const static std::unordered_map<Opcode, AllocationStrategy> alloc_strategy = {
 	{Opcode::Const,				{"sn"}},
 	{Opcode::Store,				{"xnn"}},
 	{Opcode::Load,				{"tn"}},
-	{Opcode::Add,				{"tnn"}},
+	{Opcode::Add,				{"tnn"}},	
 	{Opcode::Sub,				{"tnn"}},
 	{Opcode::Lesser,			{"tnn"}},
 	{Opcode::LesserOrEqual,		{"tnn"}},
@@ -66,25 +67,22 @@ void X64::function(const std::string& name, const Function& fn) {
 	};
 
 	function_mc = {};
+	function_mc.epi_lbl = fn.epi_lbl;
 
-	// Can be moved
-	function_textstream << name << ":\n";
 	
 	// generate machine code
 	for (const auto& inst : fn.insts) {
 		instruction(function_mc.block, inst);
 	}
 
-	const auto save_stack_frame = [&]() {
+	int ss = align_16(function_mc.stack_size) + (1 + function_mc.regs_to_restore.size()) * 8;
+
+	const auto gen_prologue = [&]() {
 		function_mc.claimed_callee_saved_regs.emplace(Reg::rbp);
 		function_mc.prologue.push_back(MC::push(reg(Reg::rbp)));
 		function_mc.prologue.push_back(MC::mov(reg(Reg::rbp), reg(Reg::rsp)));
-	};
 
-	int ss = align_16(function_mc.stack_size) + (1 + function_mc.regs_to_restore.size()) * 8;
-
-	const auto save_regs = [&]() {
-		for (const auto r: function_mc.regs_to_restore) {
+		for (const auto r : function_mc.regs_to_restore) {
 			function_mc.prologue.push_back(MC::push(reg(r)));
 		}
 
@@ -93,32 +91,34 @@ void X64::function(const std::string& name, const Function& fn) {
 		}
 	};
 
-	const auto restore_regs = [&]() {
+
+	const auto gen_epilogue = [&]() {
 		for (auto it = function_mc.regs_to_restore.rbegin(); it != function_mc.regs_to_restore.rend(); it = std::next(it)) {
 			function_mc.epilogue.push_back(MC::pop(reg(*it)));
 		}
 		function_mc.epilogue.push_back(MC::pop(reg(Reg::rbp)));
-
 		if (ss) {
 			function_mc.epilogue.push_back(MC::add(reg(Reg::rsp), Operand::make_imm(ss)));
 		}
-
+		function_mc.epilogue.push_back(MC::ret());
 	};
 
-	save_stack_frame();
-	save_regs();
-	restore_regs();
+	gen_prologue();
+	gen_epilogue();
+
+	std::vector<MC> final_mc;
+	final_mc.reserve(function_mc.prologue.size() + function_mc.block.size() + function_mc.epilogue.size());
+	final_mc.insert(final_mc.end(), function_mc.prologue.begin(), function_mc.prologue.end());
+	final_mc.insert(final_mc.end(), function_mc.block.begin(), function_mc.block.end());
+	final_mc.insert(final_mc.end(), function_mc.epilogue.begin(), function_mc.epilogue.end());
 
 	// Optimization
-	optimize(function_mc.block);
+	optimize(final_mc);
 
-	// Assembly
-	emit(function_textstream, function_mc.prologue);
-	emit(function_textstream, function_mc.block);
-
-	function_textstream << ".epi:\n";
-	emit(function_textstream, function_mc.epilogue);
+	function_textstream << name << ":\n";
+	emit(function_textstream, final_mc);
 	function_textstream << "\tret\n";
+	function_mc = {};
 }
 
 void X64::instruction(std::vector<MC>& mc, const Inst& inst) {
@@ -194,10 +194,9 @@ void X64::instruction(std::vector<MC>& mc, const Inst& inst) {
 		break;
 		case Return:
 		if (inst.operands[0] != NoValue) {
-			push_mc(MC::ret(inst_operand(0)));
-		} else {
-			push_mc(MC::ret());
+			push_mc(MC::mov(reg(rax), operand(inst.operands[0])));
 		}
+		push_mc(MC::jmp(Operand::make_imm(function_mc.epi_lbl)));
 		break;
 	}
 
@@ -207,6 +206,11 @@ void X64::instruction(std::vector<MC>& mc, const Inst& inst) {
 			consume(inst.operands[i]);
 		}
 	}
+}
+
+void X64::optimize(std::vector<MC>& mc) {
+	while (optimizer.pass(mc)) {}
+	optimizer.remove_redundant_push_pop(mc);
 }
 
 X64::Operand X64::operand(const ValueId value_id) {
@@ -262,10 +266,8 @@ void X64::emit(std::ostream& ts, const std::vector<MC>& mc) {
 				ts << format("\tmov {}, {}\n", emit(*ins.dst), emit(*ins.src)); break;
 			}
 			break;
-
 			case Push: ts << format("\tpush {}\n", emit(*ins.src)); break;
 			case Pop: ts << format("\tpop {}\n", emit(*ins.src)); break;
-
 			case MovZx:	ts << format("\tmovzx {}, {}\n", emit(*ins.dst), emit(*ins.src)); break;
 				// Math
 			case Add:	ts << format("\tadd {}, {}\n", emit(*ins.dst), emit(*ins.src)); break;
@@ -301,8 +303,8 @@ void X64::emit(std::ostream& ts, const std::vector<MC>& mc) {
 			case Ret:
 			if (ins.src) {
 				ts << format("\tmov rax, {}\n", emit(*ins.src));
+				ts << format("\tjmp .L{}\n", function_mc.epi_lbl);
 			}
-			ts << "\tjmp .epi\n";
 			break;
 			case Nop:	ts << "\tnop\n"; break;
 		}

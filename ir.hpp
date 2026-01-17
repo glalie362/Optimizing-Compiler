@@ -72,6 +72,7 @@ struct Inst {
 };
 
 struct Function {
+	LabelId epi_lbl{ NoValue };
 	std::vector<Value> values;
 	std::vector<Inst> insts;
 	std::unordered_map<std::string, ValueId> locals;

@@ -1,4 +1,5 @@
 #include "x64.hpp"
+#include "x64-optimizer.hpp"
 
 enum class CompileTimeComparison {
 	Lesser,
@@ -50,16 +51,15 @@ constexpr static bool compile_time_binary_compare(auto l, auto r, CompileTimeCom
 	}
 }
 
-void X64::optimize(std::vector<MC>& mc) {
-	while (pass_peephole(mc) || pass_unused_labels(mc));
+
+bool X64Optimizer::pass(std::vector<MC>& mc) {
+	return (pass_peephole(mc) || pass_unused_labels(mc));
 }
 
-
-bool X64::pass_peephole(std::vector<MC>& mc) {
-	bool changed = false;
-
+bool X64Optimizer::pass_peephole(std::vector<MC>& mc) {
 	using enum MC::Opcode;
 	using enum Reg;
+	bool changed = false;
 
 	for (auto it = mc.begin(); it != mc.end(); ) {
 		const auto remaining = [&](size_t n) {
@@ -95,7 +95,7 @@ bool X64::pass_peephole(std::vector<MC>& mc) {
 
 			if (a.op == Mov && a.src->is_imm() &&
 				b.op == Mov && b.src->is_imm() &&
-				c.op == Mov && c.dst->is_reg() && c.dst->reg == rax &&
+				c.op == Mov && c.dst->is_rax() &&
 				*c.src == *a.dst &&
 				d.op == Cmp &&
 				*d.lhs == *c.dst &&
@@ -117,6 +117,55 @@ bool X64::pass_peephole(std::vector<MC>& mc) {
 			}
 		}
 
+		// IF TRUE optimization
+		// mov rax, 1
+		// test rax, rax
+		// jnz .LTrue
+		// jz .LFalse
+		// ->
+		// jmp .LTrue
+		if (remaining(4)) {
+			auto b = it[1];
+			auto c = it[2];
+			auto d = it[3];
+
+			if (a.op == Mov && a.dst->is_rax() && a.src->is_imm(1) &&
+				b.op == Test && b.lhs->is_rax() && b.rhs->is_rax() &&
+				c.is_conditional_jump() &&
+				d.is_conditional_jump() &&
+				d.op == c.negated_jump().op) {
+				auto dst = c.dst;
+				it = mc.erase(it, it + 3);
+				it = mc.insert(it, MC::jmp(*dst));
+				changed = true;
+				continue;
+			}
+		}
+
+		// IF FALSE optimization
+		// xor rax, rax
+		// test rax, rax
+		// jnz .LNotZero
+		// jz .LZero
+		// ->
+		// jmp .LZero
+		if (remaining(4)) {
+			auto b = it[1];
+			auto c = it[2];
+			auto d = it[3];
+
+			if (a.op == Xor && a.dst->is_rax() && a.src->is_rax() &&
+				b.op == Test && b.lhs->is_rax() && b.rhs->is_rax() &&
+				c.is_conditional_jump() &&
+				d.is_conditional_jump() &&
+				d.op == c.negated_jump().op) {
+				auto lbl_is_zero = *d.dst;
+				it = mc.erase(it, it + 3);
+				it = mc.insert(it, MC::jmp(lbl_is_zero));
+				changed = true;
+				continue;
+			}
+		}
 
 
 		// Redundant mov elimination
@@ -130,8 +179,7 @@ bool X64::pass_peephole(std::vector<MC>& mc) {
 			if (a.op == Mov
 				&& b.op == Mov
 				&& *a.src == *b.src
-				&& a.dst->is_reg()
-				&& a.dst->reg == rax
+				&& a.dst->is_rax()
 				) {
 				const MC fold = MC::mov(*b.dst, *a.src);
 				*it = fold;
@@ -244,7 +292,6 @@ bool X64::pass_peephole(std::vector<MC>& mc) {
 				c.op == Je
 				) {
 				MC fold = MC::jmp(*c.dst);
-
 				mc.erase(it + 2);
 				it[1] = fold;
 				changed = true;
@@ -432,9 +479,9 @@ bool X64::pass_peephole(std::vector<MC>& mc) {
 			const auto jmp_if_true = it[2];
 			const auto jmp_if_false = it[3];
 
-			if (a.op == Mov && a.dst->is_reg() && a.dst->reg == rax &&
+			if (a.op == Mov && a.dst->is_rax()  &&
 				a.src->is_imm() &&
-				cmp_mc.op == Cmp && cmp_mc.lhs->is_reg() && cmp_mc.lhs->reg == rax && cmp_mc.rhs->is_imm() &&
+				cmp_mc.op == Cmp && cmp_mc.lhs->is_rax() && cmp_mc.rhs->is_imm() &&
 				jmp_if_true.is_conditional_jump() && jmp_if_false.is_conditional_jump()) {
 				const auto l = a.src->imm;
 				const auto r = cmp_mc.rhs->imm;
@@ -484,8 +531,8 @@ bool X64::pass_peephole(std::vector<MC>& mc) {
 
 		if (remaining(2)) {
 			auto b = it[1];
-			if (a.op == Mov && a.dst->is_reg() && a.dst->reg == rax &&
-				b.op == Cmp && b.lhs->is_reg() && b.lhs->reg == rax
+			if (a.op == Mov && a.dst->is_rax() &&
+				b.op == Cmp && b.lhs->is_rax()
 				) {
 				auto old_src = a.src;
 				it = mc.erase(it);
@@ -531,7 +578,7 @@ bool X64::pass_peephole(std::vector<MC>& mc) {
 	return changed;
 }
 
-bool X64::pass_unused_labels(std::vector<MC>& mc) {
+bool X64Optimizer::pass_unused_labels(std::vector<MC>& mc) {
 	bool changed = false;
 	std::unordered_set<int> referenced_labels;
 
@@ -557,4 +604,47 @@ bool X64::pass_unused_labels(std::vector<MC>& mc) {
 	}
 
 	return changed;
+}
+
+void X64Optimizer::remove_redundant_push_pop(std::vector<MC>& mc) {
+	std::unordered_set<Reg> to_remove;
+	using enum MC::Opcode;
+
+	for (const auto& ins : mc) {
+		if (ins.op == Push) {
+			if (ins.src->reg == Reg::rbp) {
+				continue;
+			}
+			if (!to_remove.contains(ins.src->reg)) {
+				to_remove.insert(ins.src->reg);
+				continue;
+			}
+		}
+
+		if (ins.op == Pop) continue;
+
+		const auto X = [&](auto& op) {
+			if (op && op->is_reg()) {
+				auto r = op->reg;
+				if (to_remove.contains(op->reg)) {
+					to_remove.erase(op->reg);
+				}
+			}
+		};
+
+		X(ins.lhs);
+		X(ins.rhs);
+		X(ins.src);
+		X(ins.dst);
+	}
+
+	std::erase_if(mc, [&](auto& ins) {
+		if (ins.op == Push && to_remove.contains(ins.src->reg)) {
+			return true;
+		}
+		if (ins.op == Pop && to_remove.contains(ins.src->reg)) {
+			return true;
+		}
+		return false;
+	});
 }
