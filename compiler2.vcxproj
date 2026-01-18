@@ -19,6 +19,7 @@
     </ProjectConfiguration>
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="bb.hpp" />
     <ClInclude Include="irgen.hpp" />
     <ClInclude Include="ir.hpp" />
     <ClInclude Include="is_optimizer.hpp" />
@@ -29,6 +30,7 @@
     <ClInclude Include="x64.hpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="bb.cpp" />
     <ClCompile Include="irgen.cpp" />
     <ClCompile Include="main.cpp" />
     <ClCompile Include="parser.cpp" />

@@ -69,9 +69,21 @@ struct Inst {
 	Opcode opcode;
 	ValueId result;
 	std::vector<ValueId> operands;
+
+	constexpr auto is_block_terminator() const {
+		using enum Opcode;
+		switch (opcode) {
+			case Branch:
+			case Jump:
+			case Return:
+			return true;
+		}
+		return false;
+	}
 };
 
 struct Function {
+	LabelId pro_lbl{ NoValue };
 	LabelId epi_lbl{ NoValue };
 	std::vector<Value> values;
 	std::vector<Inst> insts;
@@ -80,10 +92,4 @@ struct Function {
 
 struct Module {
 	std::unordered_map<std::string, Function> functions;
-};
-
-struct BasicBlock {
-	std::vector<Inst> inst;
-	std::vector<BasicBlock*> predecessors;
-	std::vector<BasicBlock*> successors;
 };

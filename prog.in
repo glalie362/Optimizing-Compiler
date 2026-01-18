@@ -1,7 +1,16 @@
 function main() : int {
 	var x : int = 0
 	while x < 5 {
+		var y : int = 0
+		while y < 10 do y = y + 1
 		x = x + 1
+
+
+		if x == y {
+			var z : int = 100
+		}
+	
+
 	}
 	return x
 }

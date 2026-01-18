@@ -54,6 +54,8 @@ struct IRGen {
 
 	bool is_constant(const ValueId value_id);
 
+	LabelId get_label(const ValueId value_id);
+
 	std::vector<std::string> errors;
 	std::vector<Value> values;
 	std::unordered_map<ValueId, Constant> constants;

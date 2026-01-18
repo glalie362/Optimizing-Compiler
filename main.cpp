@@ -1,6 +1,7 @@
 #include "parser.hpp"
 #include "x64.hpp"
 #include "x64-optimizer.hpp"
+#include "bb.hpp"
 #include <iostream>
 #include <iomanip>
 #include <format>
@@ -84,59 +85,74 @@ static std::string v(ValueId id) {
 	return std::format("v{}", id);
 }
 
+
+void out(IRGen& irgen, const std::vector<Inst>& inst, std::ostream& os) {
+	for (const auto& ins : inst) {
+		os << "; ";
+		if (ins.opcode == Opcode::Label) {
+			os << std::format("L{}:", ins.operands[0]) << '\n';
+			continue;
+		}
+
+		if (ins.opcode == Opcode::Branch) {
+			os << std::format("b v{}, L{}, L{}", ins.operands[0], ins.operands[1], ins.operands[2]) << '\n';
+			continue;
+		}
+
+		if (ins.opcode == Opcode::Jump) {
+			os << std::format("j L{}", ins.operands[0]) << '\n';
+			continue;
+		}
+
+		// Result + type
+		if (ins.result >= 0) {
+			const auto& val = irgen.values.at(ins.result);
+			os << std::format("{} : {} = ", v(ins.result), tystr(val.type));
+		}
+		// Opcode
+		os << opcode_name(ins.opcode);
+		// Special case: const  print literal value
+		if (ins.opcode == Opcode::Const) {
+			const auto& c = irgen.constants.at(ins.result);
+			os << ' ';
+			std::visit([&](auto&& x) {
+				os << x;
+			}, c.data);
+		}
+		// Operands
+		if (!ins.operands.empty()) {
+			os << ' ';
+			for (size_t i = 0; i < ins.operands.size(); ++i) {
+				os << v(ins.operands[i]);
+				if (i + 1 < ins.operands.size()) {
+					os << ", ";
+				}
+			}
+		}
+		os << '\n';
+	}
+}
+
 void out(IRGen& irgen, X64& x64, std::ostream& os, bool comments = false) {
 	for (const auto& [func_name, func] : irgen.mod.functions) {
 		os << format("; func {}", func_name) << '\n';
-		for (const auto& ins : func.insts) {
-			os << "; ";
-
-			if (ins.opcode == Opcode::Label) {
-				os << std::format("L{}:", ins.operands[0]) << '\n';
-				continue;
-			}
-
-			if (ins.opcode == Opcode::Branch) {
-				os << std::format("b v{}, L{}, L{}", ins.operands[0], ins.operands[1], ins.operands[2]) << '\n';
-				continue;
-			}
-
-			if (ins.opcode == Opcode::Jump) {
-				os << std::format("j L{}", ins.operands[0]) << '\n';
-				continue;
-			}
-
-			// Result + type
-			if (ins.result >= 0) {
-				const auto& val = irgen.values.at(ins.result);
-				os << std::format("{} : {} = ", v(ins.result), tystr(val.type));
-			}
-			// Opcode
-			os << opcode_name(ins.opcode);
-			// Special case: const  print literal value
-			if (ins.opcode == Opcode::Const) {
-				const auto& c = irgen.constants.at(ins.result);
-				os << ' ';
-				std::visit([&](auto&& x) {
-					os << x;
-				}, c.data);
-			}
-			// Operands
-			if (!ins.operands.empty()) {
-				os << ' ';
-				for (size_t i = 0; i < ins.operands.size(); ++i) {
-					os << v(ins.operands[i]);
-					if (i + 1 < ins.operands.size()) {
-						os << ", ";
-					}
-				}
-			}
-			os << '\n';
-		}
+		out(irgen, func.insts, os);
 	}
 	os << ";--------------\n";
 	string line;
 	while (getline(x64.function_textstream, line, '\n')) {
 		os << line << '\n';
+	}
+}
+
+
+static void bbg_out(IRGen& irgen, BasicBlockGenerator& bbg, std::ostream& os) {
+	for (const auto& [fn_name, bbs] : bbg.fn_to_bbs) {
+		os << "; func " << fn_name << '\n';
+		for (int i = 0; i < bbs.size(); ++i) {
+			os << std::format("; BB{}:\n", i);
+			out(irgen, bbs.at(i).inst, os);
+		}
 	}
 }
 
@@ -169,12 +185,19 @@ int main() {
 
 	X64Optimizer optimizer{ irgen };
 	X64 x64{ irgen, optimizer };
+
 	x64.module();
 
+	BasicBlockGenerator bbg{};
+	bbg.module(irgen.mod);
+
+	puts("ASSEMBLY OUTPUT IS DISABLED IN MAIN");
+	bbg_out(irgen, bbg, cout);
+
+	return 0;
 
 	ofstream outf("prog.S");
 	out(irgen, x64, outf);
 	out(irgen, x64, cout, true);
-	
 	return 0;
 }
