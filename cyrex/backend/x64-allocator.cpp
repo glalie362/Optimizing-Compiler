@@ -1,44 +1,12 @@
 #include "x64.hpp"
 #include <format>
 
-void X64::produces(const ValueId value_id, const ValueLifetime lifetime) {
-	if (locations.contains(value_id)) return;
-
-	if (lifetime == ValueLifetime::Scratch) {
-		// scratch value are produced on demand
-		// alloc_reg(value_id, Reg::rax, lifetime);
-		return;
-	}
-
-	// prefer to use volatile registers
-	for (const auto vol_reg : volatile_regs) {
-		// rax is totally scratch and should never be used as a variable
-		if (vol_reg == Reg::rax) continue;
-		if (claimed_regs.contains(vol_reg)) continue;
-		alloc_reg(value_id, vol_reg, lifetime);
-		return;
-	}
-
-	// otherwise use callee saved
-	for (const auto cs_reg : callee_saved_regs) {
-		if (claimed_regs.contains(cs_reg)) continue;
-		alloc_reg(value_id, cs_reg, lifetime);
-		return;
-	}
-
-	// if we fail to allocate a reg, spill to the stack
-	alloc_stack(value_id, lifetime);
-}
-
 void X64::consume(const ValueId value_id) {
 	if (!locations.contains(value_id)) return;
 	auto& l = locations.at(value_id);
 	if (l.lifetime == ValueLifetime::Persistent) return;
-
 	if (l.kind == ValueLocation::Kind::Reg) {
-
 		printf("consumed v%d\n", value_id);
-
 		claimed_regs.erase(l.loc.reg);
 		locations.erase(value_id);
 	}

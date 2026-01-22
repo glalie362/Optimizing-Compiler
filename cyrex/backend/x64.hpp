@@ -11,7 +11,6 @@ struct X64 {
 	IRGen& ir;
 	X64Optimizer& optimizer;
 
-
 	enum class Reg {
 		rbp, rsp, rax, rbx, rcx, rdx, /*  */ r8, r9, r10, r11, r12, r13, r14, r15,
 		ebp, esp, eax, ebx, ecx, edx, /*  */ r8d, r9d, r10d, r11d, r12d, r13d, r14d, r15d,
@@ -444,7 +443,6 @@ struct X64 {
 
 	// Allocation
 	// implemented in x64-allocator.cpp
-	void produces(const ValueId value_id, const ValueLifetime lifetime);
 	void consume(const ValueId value_id);
 	TypeSize type_size(const AST::Type& type);
 	void alloc_stack(const ValueId value_id, const ValueLifetime lifetime);
