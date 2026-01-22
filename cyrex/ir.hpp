@@ -8,6 +8,7 @@ using LabelId = ValueId;
 constexpr static ValueId NoValue = -1;
 
 struct Value {
+	// TODO: language independent type
 	AST::Type type;
 };
 
@@ -69,15 +70,39 @@ struct Inst {
 	Opcode opcode;
 	ValueId result;
 	std::vector<ValueId> operands;
+
+	constexpr auto is_block_terminator() const {
+		using enum Opcode;
+		switch (opcode) {
+			case Branch:
+			case Jump:
+			case Return:
+			return true;
+		}
+		return false;
+	}
 };
 
-struct Function {
-	LabelId epi_lbl{ NoValue };
+
+struct LinearFunction {
+	LabelId pro_lbl{};
+	LabelId epi_lbl{};
 	std::vector<Value> values;
 	std::vector<Inst> insts;
 	std::unordered_map<std::string, ValueId> locals;
 };
 
+struct BasicBlock {
+	LabelId lbl_entry;
+	std::vector<Inst> inst;
+	std::vector<BasicBlock*> successors;
+};
+
+struct CFGFunction {
+	std::vector<Value> values;
+	std::vector<BasicBlock> blocks;
+};
+
 struct Module {
-	std::unordered_map<std::string, Function> functions;
+	std::unordered_map<std::string, CFGFunction> functions;
 };

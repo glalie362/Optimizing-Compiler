@@ -1,6 +1,5 @@
 #pragma once
 #include "irgen.hpp"
-#include "is_optimizer.hpp"
 
 #include <sstream>
 #include <array>
@@ -11,6 +10,7 @@ struct X64Optimizer;
 struct X64 {
 	IRGen& ir;
 	X64Optimizer& optimizer;
+
 
 	enum class Reg {
 		rbp, rsp, rax, rbx, rcx, rdx, /*  */ r8, r9, r10, r11, r12, r13, r14, r15,
@@ -436,7 +436,7 @@ struct X64 {
 
 	// Emission
 	void module();
-	void function(const std::string& name, const Function& fn);
+	void function(const std::string& name, const CFGFunction& fn);
 	void instruction(std::vector<MC>& mc, const Inst& inst);
 
 	// Optimization
