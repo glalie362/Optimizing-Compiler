@@ -1,8 +1,0 @@
-function fib() : int {
-	var a : int = 0
-
-	const b : int = 0
-	b = 1
-
-	return 0
-}

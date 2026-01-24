@@ -1,5 +1,6 @@
 #pragma once
-#include "ast.hpp"
+// TODO: separate AST from IR
+#include "frontend/ast.hpp"
 #include <unordered_map>
 
 using ValueId = int;
@@ -12,7 +13,7 @@ struct Value {
 	AST::Type type;
 };
 
-struct Constant {
+struct Literal {
 	std::variant<long /*, double, std::string*/> data;
 };
 
