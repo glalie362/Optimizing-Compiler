@@ -298,7 +298,7 @@ ValueId IRGen::tuple_assign_expr(const AST::TupleAssignExpr& tup_assign_expr) {
 		throw std::runtime_error("internal error: tuple size mismatch");
 	}
 
-	std::vector<ValueId> temp;
+	std::vector<ValueId> temp(tup_r.elems.size());
 	for (const auto& r_elem : tup_r.elems) {
 		ValueId t = new_value(get_value_by_id(r_elem).type);
 		push_inst(Opcode::Load, t, { r_elem });
@@ -306,7 +306,7 @@ ValueId IRGen::tuple_assign_expr(const AST::TupleAssignExpr& tup_assign_expr) {
 	}
 
 	for (std::size_t i = 0; i < tup_r.elems.size(); ++i) {
-		push_inst(Opcode::Store, NoValue, { tup_l.elems[i], temp[i] });
+		push_inst(Opcode::Store, NoValue, { tup_l .elems[i], temp[i] });
 	}
 
 	return tup_l_id;
