@@ -243,7 +243,7 @@ int main(int argc, const char* argv[]) {
 			return EXIT_FAILURE;
 		}
 
-		string assembly_filename = filename.substr(0, filename.size() - 6) + ".S";
+		string assembly_filename = filename.substr(0, filename.size() - 6) + ".asm";
 		string ir_filename = filename.substr(0, filename.size() - 6) + ".ir";
 
 		X64Optimizer optimizer{ irgen };
