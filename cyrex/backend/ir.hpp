@@ -17,6 +17,10 @@ struct Literal {
 	std::variant<long /*, double, std::string*/> data;
 };
 
+struct Tuple {
+	std::vector<ValueId> elems;
+};
+
 enum class Opcode {
 	// Storage
 	Alloc,

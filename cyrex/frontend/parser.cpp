@@ -211,15 +211,16 @@ AST::Ptr Parser::parse_tuple(const int size_limit) {
 	}
 
 	size_t nexprs = exprs.size();
-
 	auto tuple = make_ast(AST::TupleExpr{ .exprs = std::move(exprs) });
 
 	// [a,b] = [b,a]
 	if (check(Token::Type::Assign)) {
 		next();
+
 		if (!expect(Token::Type::LeftSqBracket, "expected [ for tuple")) {
 			return nullptr;
 		}
+
 		next();
 
 		auto rhs = parse_tuple(nexprs);
@@ -232,10 +233,6 @@ AST::Ptr Parser::parse_tuple(const int size_limit) {
 		return make_ast(AST::TupleAssignExpr{
 			.tup_left = std::move(tuple),
 			.tup_right = std::move(rhs) });
-	}
-
-	if (tuple == nullptr) {
-
 	}
 
 	return tuple;

@@ -81,8 +81,8 @@ ValueId IRGen::expr(const AST::Expr& expr) {
 		[&](const AST::BinaryExpr& x) { return binary_expr(x);  },
 		[&](const AST::AssignExpr& x) { return assign_expr(x);  },
 		[&](const AST::IdentifierExpr& x) {return identifier_expr(x); },
-		[&](const AST::TupleExpr& x) { return NoValue;  },
-		[&](const AST::TupleAssignExpr& x) { return NoValue;  },
+		[&](const AST::TupleExpr& x) { return tuple_expr(x);  },
+		[&](const AST::TupleAssignExpr& x) { return tuple_assign_expr(x);  },
 	};
 	return std::visit(visitor, expr);
 }
@@ -277,6 +277,41 @@ ValueId IRGen::assign_expr(const AST::AssignExpr& assign) {
 	return leftval;
 }
 
+ValueId IRGen::tuple_expr(const AST::TupleExpr& tup_expr) {
+	ValueId tup_id = new_tuple();
+	for (const auto& expr : tup_expr.exprs) {
+		ValueId elem = gen(expr);
+		push_tuple_elem(tup_id, elem);
+	}
+	return tup_id;
+}
+
+ValueId IRGen::tuple_assign_expr(const AST::TupleAssignExpr& tup_assign_expr) {
+	// [a, b, c] = [d, e, f]
+	const ValueId tup_l_id = gen(tup_assign_expr.tup_left);
+	const ValueId tup_r_id = gen(tup_assign_expr.tup_right);
+	
+	const Tuple& tup_l = tuples.at(tup_l_id);
+	const Tuple& tup_r = tuples.at(tup_r_id);
+	
+	if (tup_l.elems.size() != tup_r.elems.size()) {
+		throw std::runtime_error("internal error: tuple size mismatch");
+	}
+
+	std::vector<ValueId> temp;
+	for (const auto& r_elem : tup_r.elems) {
+		ValueId t = new_value(get_value_by_id(r_elem).type);
+		push_inst(Opcode::Load, t, { r_elem });
+		temp.push_back(t);
+	}
+
+	for (std::size_t i = 0; i < tup_r.elems.size(); ++i) {
+		push_inst(Opcode::Store, NoValue, { tup_l.elems[i], temp[i] });
+	}
+
+	return tup_l_id;
+}
+
 Literal IRGen::parse_literal(const AST::LiteralExpr literal) {
 	if (literal.type.name == "int") {
 		return { std::stol(literal.value) };
@@ -314,6 +349,19 @@ ValueId IRGen::new_value(const AST::Type& type) {
 	value.type = type;
 	values.push_back(value);
 	return id;
+}
+
+ValueId IRGen::new_tuple() {
+	ValueId tup_id = tuples.size();
+	tuples[tup_id] = {};
+	return tup_id;
+}
+
+void IRGen::push_tuple_elem(const ValueId tuple_id, const ValueId value_id) {
+	if (tuple_id >= tuples.size()) {
+		throw std::runtime_error("internal error: invalid tuple id");
+	}
+	tuples.at(tuple_id).elems.push_back(value_id);
 }
 
 void IRGen::enter_scope() {

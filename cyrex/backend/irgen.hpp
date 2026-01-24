@@ -59,6 +59,9 @@ private:
 	ValueId binary_expr(const AST::BinaryExpr& binary);
 	ValueId assign_expr(const AST::AssignExpr& assign);
 
+	ValueId tuple_expr(const AST::TupleExpr& tup_expr);
+	ValueId tuple_assign_expr(const AST::TupleAssignExpr& tup_assign_expr);
+
 private:
 	Literal parse_literal(const AST::LiteralExpr literal);
 
@@ -74,7 +77,9 @@ private:
 private:
 	// produces a new value and returns its id
 	ValueId new_value(const AST::Type& type);
-	
+	ValueId new_tuple();
+	void push_tuple_elem(const ValueId tuple_id, const ValueId value_id);
+
 private:
 	void enter_scope();
 	std::optional<ValueId> find_symbol(const std::string& name);
@@ -87,6 +92,7 @@ private:
 	std::vector<std::string> errors;
 	std::vector<Value> values;
 	std::unordered_map<ValueId, Literal> literals;
+	std::unordered_map<ValueId, Tuple> tuples;
 	std::unordered_map<std::string, LinearFunction> functions;
 
 	std::vector<Scope> scopes;
