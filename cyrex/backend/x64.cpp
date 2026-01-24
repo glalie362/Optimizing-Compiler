@@ -219,13 +219,8 @@ void X64::optimize(std::vector<MC>& mc) {
 	optimizer.remove_redundant_push_pop(mc);
 }
 
-std::string X64::assembly() {
-	std::string out;
-	std::string line;
-	while (std::getline(function_textstream, line, '\n')) {
-		out += line + '\n';
-	}
-	return out;
+std::string X64::assembly() const {
+	return function_textstream.str();
 }
 
 X64::Operand X64::operand(const ValueId value_id) {

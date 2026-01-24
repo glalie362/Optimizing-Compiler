@@ -432,7 +432,7 @@ public:
 	explicit X64(IRGen& ir, X64Optimizer& optimizer);
 	void module();
 	void optimize(std::vector<MC>& mc);
-	std::string assembly();
+	std::string assembly() const;
 
 private:
 	void function(const std::string& name, const CFGFunction& fn);

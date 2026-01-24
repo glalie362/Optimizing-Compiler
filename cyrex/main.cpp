@@ -91,74 +91,98 @@ static string v(ValueId id) {
 	return format("v{}", id);
 }
 
-
-static void out(IRGen& irgen, const vector<Inst>& inst, ostream& os) {
-	for (const auto& ins : inst) {
-		//os << "; ";
-		if (ins.opcode == Opcode::Label) {
-			os << format("L{}:", ins.operands[0]) << '\n';
-			continue;
-		}
-
-		if (ins.opcode == Opcode::Branch) {
-			os << format("b v{}, L{}, L{}", ins.operands[0], ins.operands[1], ins.operands[2]) << '\n';
-			continue;
-		}
-
-		if (ins.opcode == Opcode::Jump) {
-			os << format("j L{}", ins.operands[0]) << '\n';
-			continue;
-		}
-
-		// Result + type
-		if (ins.result >= 0) {
-			const auto& val = irgen.get_value_by_id(ins.result);
-			os << format("{} : {} = ", v(ins.result), tystr(val.type));
-		}
-		// Opcode
-		os << opcode_name(ins.opcode);
-		// Special case: const  print literal value
-		if (ins.opcode == Opcode::Const) {
-			const auto& c = irgen.get_literal_by_id(ins.result);
-			os << ' ';
-			visit([&](auto&& x) {
-				os << x;
-			}, c.data);
-		}
-		// Operands
-		if (!ins.operands.empty()) {
-			os << ' ';
-			for (size_t i = 0; i < ins.operands.size(); ++i) {
-				os << v(ins.operands[i]);
-				if (i + 1 < ins.operands.size()) {
-					os << ", ";
-				}
-			}
-		}
-		os << '\n';
-	}
-}
-
 static string read_file(const string& filename) {
 	ifstream infile(filename);
 	if (!infile) {
 		throw runtime_error(format("file not found: {}", filename));
-	} 
+	}
 	string src;
 	ifstream in(filename);
 	getline(in, src, '\0');
 	return src;
 }
 
+static void print_ir_instruction(ostream& outfile, const Inst& ins, const IRGen& irgen) {
+	//outfile << "; ";
+	if (ins.opcode == Opcode::Label) {
+		outfile << format("L{}:", ins.operands[0]) << '\n';
+		return;
+	}
+
+	if (ins.opcode == Opcode::Branch) {
+		outfile << format("b v{}, L{}, L{}", ins.operands[0], ins.operands[1], ins.operands[2]) << '\n';
+		return;
+	}
+
+	if (ins.opcode == Opcode::Jump) {
+		outfile << format("j L{}", ins.operands[0]) << '\n';
+		return;
+	}
+
+	// Result + type
+	if (ins.result >= 0) {
+		const auto& val = irgen.get_value_by_id(ins.result);
+		outfile << format("{} : {} = ", v(ins.result), tystr(val.type));
+	}
+	// Opcode
+	outfile << opcode_name(ins.opcode);
+	// Special case: const  print literal value
+	if (ins.opcode == Opcode::Const) {
+		const auto& c = irgen.get_literal_by_id(ins.result);
+		outfile << ' ';
+		visit([&](auto&& x) {
+			outfile << x;
+		}, c.data);
+	}
+	// Operands
+	if (!ins.operands.empty()) {
+		outfile << ' ';
+		for (size_t i = 0; i < ins.operands.size(); ++i) {
+			outfile << v(ins.operands[i]);
+			if (i + 1 < ins.operands.size()) {
+				outfile << ", ";
+			}
+		}
+	}
+	outfile << '\n';
+}
+
+static void print_ir(ostream& os, const IRGen& irgen) {
+	for (const auto& [cfg_name, cfg] : irgen.get_functions()) {
+		for (const auto& blk : cfg.blocks) {
+			os << format("BB{}:\n", blk.lbl_entry);
+			for (const auto& ins : blk.inst) {
+				print_ir_instruction(os, ins, irgen);
+			}
+		}
+	}
+}
+
+static void write_ir(const string& filename, const IRGen& irgen) {
+	ofstream outfile(filename);
+	if (!outfile) {
+		throw runtime_error(format("error creating outfile: {}", filename));
+	}
+	print_ir(outfile, irgen);
+}
+
+static void write_assembly(const string& filename, const X64& x64) {
+	ofstream outfile(filename);
+	if (!outfile) {
+		throw runtime_error(format("error creating outfile: {}", filename));
+	}
+
+	outfile << x64.assembly() << '\n';
+}
+
 int main() {
 	vector<Token> tokens;
 	try {
-		tokens = tokenize(read_file("prog.in"), keywords, punctuation);
-	}
-	catch (const runtime_error& rte) {
+		tokens = tokenize(read_file("hello.cyrex"), keywords, punctuation);
+	} catch (const runtime_error& rte) {
 		cerr << rte.what() << '\n';
 		return EXIT_FAILURE;
-	}
+	}	
 
 	Parser parser;
 	auto root = parser.parse(tokens);
@@ -182,12 +206,14 @@ int main() {
 		}
 		return EXIT_FAILURE;
 	}
-	
-	ofstream outf("prog.S");
-	X64Optimizer optimizer{ irgen };	
 
-	X64 x64 (irgen, optimizer);
+	ofstream outf("hello.S");
+	X64Optimizer optimizer{ irgen };
+
+	X64 x64(irgen, optimizer);
 	x64.module();
-	outf << x64.assembly();
+
+	write_ir("hello.ir", irgen);
+	write_assembly("hello.S", x64);
 	return 0;
 }

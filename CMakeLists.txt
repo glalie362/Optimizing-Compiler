@@ -23,7 +23,6 @@ add_executable (cyrex-compiler
 
 include_directories(cyrex-compiler PRIVATE cyrex/)
 
-
 if (CMAKE_VERSION VERSION_GREATER 3.12)
   set_property(TARGET cyrex-compiler PROPERTY CXX_STANDARD 23)
 endif()
