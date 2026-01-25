@@ -306,7 +306,7 @@ ValueId IRGen::tuple_assign_expr(const AST::TupleAssignExpr& tup_assign_expr) {
 	}
 
 	for (std::size_t i = 0; i < tup_r.elems.size(); ++i) {
-		push_inst(Opcode::Store, NoValue, { tup_l .elems[i], temp[i] });
+		push_inst(Opcode::Store, NoValue, { tup_l.elems[i], temp[i] });
 	}
 
 	return tup_l_id;

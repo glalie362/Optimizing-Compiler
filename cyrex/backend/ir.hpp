@@ -2,6 +2,7 @@
 // TODO: separate AST from IR
 #include "frontend/ast.hpp"
 #include <unordered_map>
+#include <unordered_set>
 
 using ValueId = int;
 using LabelId = ValueId;
@@ -101,6 +102,18 @@ struct BasicBlock {
 	LabelId lbl_entry;
 	std::vector<Inst> inst;
 	std::vector<BasicBlock*> successors;
+
+	// live at the start of the block
+	std::unordered_set<ValueId> in;
+
+	//variables written in the block
+	std::unordered_set<ValueId> def;
+
+	// variables read before being written
+	std::unordered_set<ValueId> use;
+
+	// live at the end of the block
+	std::unordered_set<ValueId> out;
 };
 
 struct CFGFunction {

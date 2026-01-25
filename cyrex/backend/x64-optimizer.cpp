@@ -1,5 +1,6 @@
 #include "x64.hpp"
 #include "x64-optimizer.hpp"
+#include <iostream>
 
 enum class CompileTimeComparison {
 	Lesser,
@@ -203,7 +204,6 @@ bool X64Optimizer::pass_peephole(std::vector<MC>& mc) {
 			if (a.op == Mov &&
 				b.is_binary_math_operation() &&
 				c.op == Mov &&
-				a.dst && b.dst && c.src && c.dst &&
 				*a.dst == *b.dst &&
 				*a.dst == *c.src &&
 				*a.src == *c.dst) {
@@ -220,9 +220,9 @@ bool X64Optimizer::pass_peephole(std::vector<MC>& mc) {
 		}
 
 		// Const elimination
-		// mov rcx, rbx OR imm
-		// add rdx, rcx
-		// -> add rdx, rbx OR imm
+		// mov rcx, reg OR imm
+		// add rdx, reg
+		// -> add rdx, reg OR imm
 		if (remaining(1)) {
 			auto& b = it[1];
 			if (
@@ -246,7 +246,7 @@ bool X64Optimizer::pass_peephole(std::vector<MC>& mc) {
 		if (remaining(1)) {
 			auto& b = it[1];
 			if (a.op == Xor &&
-				a.dst == a.src &&
+				a.dst->is_rax() && b.src->is_rax() &&
 				b.op == Mov && *b.src == *a.dst) {
 				MC fold = MC::l_xor(*b.dst, *b.dst);
 				*it = fold;
@@ -480,7 +480,7 @@ bool X64Optimizer::pass_peephole(std::vector<MC>& mc) {
 			const auto jmp_if_true = it[2];
 			const auto jmp_if_false = it[3];
 
-			if (a.op == Mov && a.dst->is_rax()  &&
+			if (a.op == Mov && a.dst->is_rax() &&
 				a.src->is_imm() &&
 				cmp_mc.op == Cmp && cmp_mc.lhs->is_rax() && cmp_mc.rhs->is_imm() &&
 				jmp_if_true.is_conditional_jump() && jmp_if_false.is_conditional_jump()) {
@@ -569,9 +569,7 @@ bool X64Optimizer::pass_peephole(std::vector<MC>& mc) {
 				changed = true;
 				continue;
 			}
-
 		}
-
 
 		it = std::next(it);
 	}
