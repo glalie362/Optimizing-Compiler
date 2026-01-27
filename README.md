@@ -1,4 +1,5 @@
 # Cyrex Optimizing Compiler
+### THIS PROJECT IS BEING RE-DONE IN A TEST DRIVEN MANNER.
 #### Fun peephole optimizing compiler
 
 ## Usage
